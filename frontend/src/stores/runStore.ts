@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { db } from '../utils/db';
 import { uid } from '../utils/id';
+import { readTable, writeTable } from '../utils/ownership';
+import { enqueue } from '../utils/syncEngine';
+import { useSideStore } from './sideStore';
 import type { DrillRun, RunAnomaly, RunShift } from '../types/drill-run';
 import { footageOf, gradeOf, isAnomaly, recoveryOf, RECOVERY_GRADE_TEXT } from '../utils/recovery';
 
@@ -27,17 +29,20 @@ interface RunState {
   removeByHole: (holeId: string) => Promise<void>;
 }
 
-/** 回次与采取率派生值：进尺与采取率均由起止深度、岩芯长度自动计算 */
+/** 回次与采取率：现场端（钻机班组）持有与编辑；进尺/采取率自动计算。编录室端只读同步副本。 */
 export const useRunStore = create<RunState>()((set, get) => ({
   runs: [],
   hydrated: false,
 
   hydrate: async () => {
-    const runs = await db.runs.orderBy('fromDepth').toArray();
+    const side = useSideStore.getState().side;
+    const runs = await readTable(side, 'runs').orderBy('fromDepth').toArray();
     set({ runs, hydrated: true });
   },
 
   addRun: async (input) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'runs'); // 非归属端调用会抛错
     const footage = footageOf(input.fromDepth, input.toDepth);
     const run: DrillRun = {
       id: uid('run'),
@@ -54,12 +59,15 @@ export const useRunStore = create<RunState>()((set, get) => ({
       recorder: input.recorder.trim(),
       remark: input.remark?.trim() || undefined,
     };
-    await db.runs.put(run);
+    await table.put(run);
+    await enqueue(side, 'runs', 'upsert', run.id, run);
     set({ runs: [run, ...get().runs] });
     return run;
   },
 
   updateRun: async (id, patch) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'runs');
     const current = get().runs.find((r) => r.id === id);
     if (!current) return;
     const merged = { ...current, ...patch };
@@ -69,18 +77,25 @@ export const useRunStore = create<RunState>()((set, get) => ({
       footage,
       recovery: recoveryOf(merged.coreLength, footage),
     };
-    await db.runs.put(next);
+    await table.put(next);
+    await enqueue(side, 'runs', 'upsert', next.id, next);
     set({ runs: get().runs.map((r) => (r.id === id ? next : r)) });
   },
 
   removeRun: async (id) => {
-    await db.runs.delete(id);
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'runs');
+    await table.delete(id);
+    await enqueue(side, 'runs', 'delete', id, null);
     set({ runs: get().runs.filter((r) => r.id !== id) });
   },
 
   removeByHole: async (holeId) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'runs');
     const ids = get().runs.filter((r) => r.holeId === holeId).map((r) => r.id);
-    await db.runs.bulkDelete(ids);
+    await table.bulkDelete(ids);
+    await Promise.all(ids.map((id) => enqueue(side, 'runs', 'delete', id, null)));
     set({ runs: get().runs.filter((r) => r.holeId !== holeId) });
   },
 }));

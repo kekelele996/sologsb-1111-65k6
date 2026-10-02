@@ -29,3 +29,8 @@ a {
 .conflict-row > td {
   background: #fff1f0 !important;
 }
+
+/* 对账同步：已裁定行浅绿底 */
+.mismatch-resolved > td {
+  background: #f6ffed !important;
+}

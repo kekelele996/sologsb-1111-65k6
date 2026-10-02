@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { db } from '../utils/db';
 import { uid } from '../utils/id';
+import { writeTable } from '../utils/ownership';
+import { enqueue } from '../utils/syncEngine';
+import { useSideStore } from './sideStore';
 import type { DrillHole, HoleProgress, SurveyPoint } from '../types/drill-hole';
 import type { DrillRun } from '../types/drill-run';
 import { buildHoleProgress } from '../utils/recovery';
@@ -33,7 +36,7 @@ interface HoleState {
   currentHole: () => DrillHole | undefined;
 }
 
-/** 钻孔台帐与当前孔 */
+/** 钻孔台帐与当前孔（双方共享参考，任一侧均可维护，改动挂本侧发件箱） */
 export const useHoleStore = create<HoleState>()((set, get) => ({
   holes: [],
   currentHoleId: '',
@@ -47,6 +50,8 @@ export const useHoleStore = create<HoleState>()((set, get) => ({
   setCurrentHole: (id) => set({ currentHoleId: id }),
 
   addHole: async (input) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'holes');
     const hole: DrillHole = {
       id: uid('hole'),
       holeNo: input.holeNo.trim(),
@@ -62,21 +67,28 @@ export const useHoleStore = create<HoleState>()((set, get) => ({
       surveyData: input.surveyData,
       remark: input.remark?.trim() || undefined,
     };
-    await db.holes.put(hole);
+    await table.put(hole);
+    await enqueue(side, 'holes', 'upsert', hole.id, hole);
     set({ holes: [...get().holes, hole].sort((a, b) => a.holeNo.localeCompare(b.holeNo)), currentHoleId: hole.id });
     return hole;
   },
 
   updateHole: async (id, patch) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'holes');
     const current = get().holes.find((h) => h.id === id);
     if (!current) return;
     const next: DrillHole = { ...current, ...patch };
-    await db.holes.put(next);
+    await table.put(next);
+    await enqueue(side, 'holes', 'upsert', next.id, next);
     set({ holes: get().holes.map((h) => (h.id === id ? next : h)) });
   },
 
   removeHole: async (id) => {
-    await db.holes.delete(id);
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'holes');
+    await table.delete(id);
+    await enqueue(side, 'holes', 'delete', id, null);
     set({ holes: get().holes.filter((h) => h.id !== id) });
   },
 

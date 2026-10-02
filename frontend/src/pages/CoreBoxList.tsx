@@ -5,6 +5,8 @@ import dayjs, { type Dayjs } from 'dayjs';
 import BoxGrid from '../components/common/BoxGrid';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import EmptyPanel from '../components/common/EmptyPanel';
+import ReplicaBanner from '../components/common/ReplicaBanner';
+import { useCanEdit } from '../hooks/useSide';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
@@ -51,6 +53,7 @@ export default function CoreBoxList() {
   const updateBox = useBoxStore((s) => s.updateBox);
   const removeBox = useBoxStore((s) => s.removeBox);
   const toggleDamagedSlot = useBoxStore((s) => s.toggleDamagedSlot);
+  const canEdit = useCanEdit('boxes');
 
   const [form] = Form.useForm<BoxFormValues>();
   const [open, setOpen] = useState(false);
@@ -184,14 +187,18 @@ export default function CoreBoxList() {
           <Button size="small" type="link" onClick={() => setSelectedBoxId(record.id)}>
             查看格位
           </Button>
-          <Button size="small" type="link" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title={`确认删除岩芯箱 ${record.boxNo}？`} onConfirm={() => removeBox(record.id).then(() => message.success('已删除'))}>
-            <Button size="small" type="link" danger>
-              删除
-            </Button>
-          </Popconfirm>
+          {canEdit ? (
+            <>
+              <Button size="small" type="link" onClick={() => openEdit(record)}>
+                编辑
+              </Button>
+              <Popconfirm title={`确认删除岩芯箱 ${record.boxNo}？`} onConfirm={() => removeBox(record.id).then(() => message.success('已删除'))}>
+                <Button size="small" type="link" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            </>
+          ) : null}
         </Space>
       ),
     },
@@ -206,10 +213,12 @@ export default function CoreBoxList() {
       </Title>
       <Paragraph type="secondary">按深度区间分配格位，装箱时校验区间与回次是否连续；断档在格位网格中以虚线标出，破损格可点击切换标记。</Paragraph>
 
+      <ReplicaBanner entity="boxes" />
+
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 200 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           新建岩芯箱
         </Button>
       </Space>
@@ -233,7 +242,7 @@ export default function CoreBoxList() {
             >
               {selectedBox ? (
                 <>
-                  <BoxGrid box={selectedBox} runs={runs} onToggleDamaged={(slot) => toggleDamagedSlot(selectedBox.id, slot)} />
+                  <BoxGrid box={selectedBox} runs={runs} onToggleDamaged={canEdit ? (slot) => toggleDamagedSlot(selectedBox.id, slot) : undefined} />
                   <Alert
                     style={{ marginTop: 10 }}
                     type={continuityOf(selectedBox).covered ? 'success' : 'warning'}

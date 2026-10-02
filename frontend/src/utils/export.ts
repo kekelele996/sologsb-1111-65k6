@@ -8,15 +8,17 @@ export interface BackupPayload {
   runs: unknown[];
   boxes: unknown[];
   lithos: unknown[];
+  qc: unknown[];
 }
 
-/** 汇总全部本地表为 JSON 备份（schema 迁移前先导出） */
+/** 汇总全部本地业务表为 JSON 备份（schema 迁移前先导出） */
 export async function buildBackup(): Promise<BackupPayload> {
-  const [holes, runs, boxes, lithos] = await Promise.all([
+  const [holes, runs, boxes, lithos, qc] = await Promise.all([
     db.holes.toArray(),
     db.runs.toArray(),
     db.boxes.toArray(),
     db.lithos.toArray(),
+    db.qc.toArray(),
   ]);
   return {
     app: 'gbdrillcore',
@@ -26,6 +28,7 @@ export async function buildBackup(): Promise<BackupPayload> {
     runs,
     boxes,
     lithos,
+    qc,
   };
 }
 
@@ -59,7 +62,7 @@ export function downloadCsv<T extends Record<string, unknown>>(
 }
 
 /** 恢复 JSON 备份 */
-export async function importBackup(text: string): Promise<{ holes: number; runs: number; boxes: number; lithos: number }> {
+export async function importBackup(text: string): Promise<{ holes: number; runs: number; boxes: number; lithos: number; qc: number }> {
   const payload = JSON.parse(text) as Partial<BackupPayload>;
   if (!payload || payload.app !== 'gbdrillcore') {
     throw new Error('备份文件格式不匹配（缺少 app=gbdrillcore 标记）');
@@ -69,13 +72,15 @@ export async function importBackup(text: string): Promise<{ holes: number; runs:
     runs: payload.runs?.length ?? 0,
     boxes: payload.boxes?.length ?? 0,
     lithos: payload.lithos?.length ?? 0,
+    qc: payload.qc?.length ?? 0,
   };
-  await db.transaction('rw', db.holes, db.runs, db.boxes, db.lithos, async () => {
-    await Promise.all([db.holes.clear(), db.runs.clear(), db.boxes.clear(), db.lithos.clear()]);
+  await db.transaction('rw', db.holes, db.runs, db.boxes, db.lithos, db.qc, async () => {
+    await Promise.all([db.holes.clear(), db.runs.clear(), db.boxes.clear(), db.lithos.clear(), db.qc.clear()]);
     if (payload.holes?.length) await db.holes.bulkPut(payload.holes as never[]);
     if (payload.runs?.length) await db.runs.bulkPut(payload.runs as never[]);
     if (payload.boxes?.length) await db.boxes.bulkPut(payload.boxes as never[]);
     if (payload.lithos?.length) await db.lithos.bulkPut(payload.lithos as never[]);
+    if (payload.qc?.length) await db.qc.bulkPut(payload.qc as never[]);
   });
   return counts;
 }

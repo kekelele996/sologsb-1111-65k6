@@ -4,6 +4,8 @@ import type { TableColumnsType } from 'antd';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import LithoColumn from '../components/common/LithoColumn';
 import EmptyPanel from '../components/common/EmptyPanel';
+import ReplicaBanner from '../components/common/ReplicaBanner';
+import { useCanEdit } from '../hooks/useSide';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { useLithoStore } from '../stores/lithoStore';
@@ -46,6 +48,7 @@ export default function LithoEditor() {
   const updateLitho = useLithoStore((s) => s.updateLitho);
   const removeLitho = useLithoStore((s) => s.removeLitho);
   const checkConflicts = useLithoStore((s) => s.checkConflicts);
+  const canEdit = useCanEdit('lithos');
 
   const [form] = Form.useForm<LithoFormValues>();
   const [open, setOpen] = useState(false);
@@ -169,23 +172,27 @@ export default function LithoEditor() {
     { title: '样品号', dataIndex: 'sampleNo', width: 130, render: (v: string) => v || '-' },
     { title: '编录人', dataIndex: 'logger', width: 90 },
     { title: '备注', dataIndex: 'remark', ellipsis: true, render: (v?: string) => v ?? '-' },
-    {
-      title: '操作',
-      width: 140,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size={2}>
-          <Button size="small" type="link" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title={`确认删除 ${record.fromDepth}~${record.toDepth}m 编录？`} onConfirm={() => removeLitho(record.id).then(() => message.success('已删除'))}>
-            <Button size="small" type="link" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            title: '操作',
+            width: 140,
+            fixed: 'right' as const,
+            render: (_: unknown, record: LithoLog) => (
+              <Space size={2}>
+                <Button size="small" type="link" onClick={() => openEdit(record)}>
+                  编辑
+                </Button>
+                <Popconfirm title={`确认删除 ${record.fromDepth}~${record.toDepth}m 编录？`} onConfirm={() => removeLitho(record.id).then(() => message.success('已删除'))}>
+                  <Button size="small" type="link" danger>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -197,10 +204,12 @@ export default function LithoEditor() {
         按深度区间编录岩性、蚀变、矿化与 RQD，区间不允许与已编录区间重叠（重叠即报冲突并高亮）；右侧柱状图叠加样品位与采取率异常段。
       </Paragraph>
 
+      <ReplicaBanner entity="lithos" />
+
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 220 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           新增岩性区间
         </Button>
         <Tag color="blue">已编录 {holeLogs.length} 段</Tag>

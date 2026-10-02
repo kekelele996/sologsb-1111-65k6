@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { db } from '../utils/db';
 import { uid } from '../utils/id';
+import { readTable, writeTable } from '../utils/ownership';
+import { enqueue } from '../utils/syncEngine';
+import { useSideStore } from './sideStore';
 import type { Alteration, LithoLog, Lithology, Mineralization, RangeConflict } from '../types/litho-log';
 import { findConflicts } from '../utils/recovery';
 
@@ -29,13 +31,14 @@ interface LithoState {
   removeLitho: (id: string) => Promise<void>;
 }
 
-/** 岩性区间与冲突校验 */
+/** 岩性区间与冲突校验：编录室端（地质编录员）持有与编辑；现场端只读同步副本 */
 export const useLithoStore = create<LithoState>()((set, get) => ({
   lithos: [],
   hydrated: false,
 
   hydrate: async () => {
-    const lithos = await db.lithos.orderBy('fromDepth').toArray();
+    const side = useSideStore.getState().side;
+    const lithos = await readTable(side, 'lithos').orderBy('fromDepth').toArray();
     set({ lithos, hydrated: true });
   },
 
@@ -57,6 +60,8 @@ export const useLithoStore = create<LithoState>()((set, get) => ({
   },
 
   addLitho: async (input) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'lithos'); // 非归属端调用会抛错
     const conflicts = get().checkConflicts(input);
     if (conflicts.length) {
       return { conflicts };
@@ -75,12 +80,15 @@ export const useLithoStore = create<LithoState>()((set, get) => ({
       logger: input.logger.trim(),
       remark: input.remark?.trim() || undefined,
     };
-    await db.lithos.put(log);
+    await table.put(log);
+    await enqueue(side, 'lithos', 'upsert', log.id, log);
     set({ lithos: [...get().lithos, log] });
     return { log, conflicts: [] };
   },
 
   updateLitho: async (id, patch) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'lithos');
     const current = get().lithos.find((l) => l.id === id);
     if (!current) return { conflicts: [] };
     const merged = { ...current, ...patch };
@@ -89,13 +97,17 @@ export const useLithoStore = create<LithoState>()((set, get) => ({
       return { conflicts };
     }
     const next: LithoLog = { ...merged };
-    await db.lithos.put(next);
+    await table.put(next);
+    await enqueue(side, 'lithos', 'upsert', next.id, next);
     set({ lithos: get().lithos.map((l) => (l.id === id ? next : l)) });
     return { log: next, conflicts: [] };
   },
 
   removeLitho: async (id) => {
-    await db.lithos.delete(id);
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'lithos');
+    await table.delete(id);
+    await enqueue(side, 'lithos', 'delete', id, null);
     set({ lithos: get().lithos.filter((l) => l.id !== id) });
   },
 }));

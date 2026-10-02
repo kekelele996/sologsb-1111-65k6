@@ -3,6 +3,7 @@ import type { DrillHole } from '../types/drill-hole';
 import type { DrillRun } from '../types/drill-run';
 import type { CoreBox } from '../types/core-box';
 import type { LithoLog } from '../types/litho-log';
+import type { QcRecord } from '../types/qc';
 import { footageOf, recoveryOf } from './recovery';
 
 const DAY = 86_400_000;
@@ -167,24 +168,35 @@ export const SEED_LITHOS: LithoLog[] = [
   { id: 'litho-018', holeId: 'hole-005', fromDepth: 11, toDepth: 45, lithology: '花岗闪长岩', color: '灰白色', alteration: '硅化', mineralization: '无', rqd: 87, sampleNo: 'YP-2405-01', logger: '吴倩' },
 ];
 
+/** 质检结论示例（编录室端持有）：对各孔关键深度段的采取率/编录深度/样品代表性下结论 */
+export const SEED_QC: QcRecord[] = [
+  { id: 'qc-001', holeId: 'hole-002', fromDepth: 62, toDepth: 96, item: '岩芯采取率', conclusion: '合格', inspector: '陈立', inspectedAt: daysAgo(10), remark: '矽卡岩段采取率达标' },
+  { id: 'qc-002', holeId: 'hole-003', fromDepth: 74, toDepth: 118, item: '岩芯采取率', conclusion: '不合格', inspector: '吴倩', inspectedAt: daysAgo(4), remark: '断层角砾岩段采取率偏低，需复检' },
+  { id: 'qc-003', holeId: 'hole-003', fromDepth: 118, toDepth: 205, item: '编录深度', conclusion: '待复检', inspector: '吴倩', inspectedAt: daysAgo(3), remark: '深度与现场回次待对账' },
+  { id: 'qc-004', holeId: 'hole-001', fromDepth: 86, toDepth: 155, item: '样品代表性', conclusion: '合格', inspector: '陈立', inspectedAt: daysAgo(8), remark: '主矿化段样品连续' },
+  { id: 'qc-005', holeId: 'hole-005', fromDepth: 11, toDepth: 45, item: '岩性描述', conclusion: '合格', inspector: '吴倩', inspectedAt: daysAgo(2) },
+];
+
 /** 首次打开（表内无数据）时写入示例数据；已有数据则不动 */
 export async function seedIfEmpty(): Promise<void> {
   const flag = await db.meta.get('seeded');
   if (flag) {
     return;
   }
-  const [holeCount, runCount, boxCount, lithoCount] = await Promise.all([
+  const [holeCount, runCount, boxCount, lithoCount, qcCount] = await Promise.all([
     db.holes.count(),
     db.runs.count(),
     db.boxes.count(),
     db.lithos.count(),
+    db.qc.count(),
   ]);
 
-  await db.transaction('rw', db.holes, db.runs, db.boxes, db.lithos, db.meta, async () => {
+  await db.transaction('rw', [db.holes, db.runs, db.boxes, db.lithos, db.qc, db.meta], async () => {
     if (holeCount === 0) await db.holes.bulkPut(SEED_HOLES);
     if (runCount === 0) await db.runs.bulkPut(SEED_RUNS);
     if (boxCount === 0) await db.boxes.bulkPut(SEED_BOXES);
     if (lithoCount === 0) await db.lithos.bulkPut(SEED_LITHOS);
+    if (qcCount === 0) await db.qc.bulkPut(SEED_QC);
     await db.meta.put({ key: 'seeded', value: new Date().toISOString() });
   });
 }

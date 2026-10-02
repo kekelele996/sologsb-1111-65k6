@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { db } from '../utils/db';
 import { uid } from '../utils/id';
+import { readTable, writeTable } from '../utils/ownership';
+import { enqueue } from '../utils/syncEngine';
+import { useSideStore } from './sideStore';
 import type { CoreBox } from '../types/core-box';
 
 export interface BoxInput {
@@ -28,17 +30,20 @@ interface BoxState {
   toggleDamagedSlot: (id: string, slot: number) => Promise<void>;
 }
 
-/** 岩芯箱与格位分配 */
+/** 岩芯箱与格位分配：现场端（钻机班组）持有与编辑；编录室端只读同步副本 */
 export const useBoxStore = create<BoxState>()((set, get) => ({
   boxes: [],
   hydrated: false,
 
   hydrate: async () => {
-    const boxes = await db.boxes.orderBy('boxNo').toArray();
+    const side = useSideStore.getState().side;
+    const boxes = await readTable(side, 'boxes').orderBy('boxNo').toArray();
     set({ boxes, hydrated: true });
   },
 
   addBox: async (input) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'boxes');
     const box: CoreBox = {
       id: uid('box'),
       boxNo: input.boxNo.trim(),
@@ -53,32 +58,42 @@ export const useBoxStore = create<BoxState>()((set, get) => ({
       operator: input.operator.trim(),
       remark: input.remark?.trim() || undefined,
     };
-    await db.boxes.put(box);
+    await table.put(box);
+    await enqueue(side, 'boxes', 'upsert', box.id, box);
     set({ boxes: [...get().boxes, box] });
     return box;
   },
 
   updateBox: async (id, patch) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'boxes');
     const current = get().boxes.find((b) => b.id === id);
     if (!current) return;
     const next: CoreBox = { ...current, ...patch };
-    await db.boxes.put(next);
+    await table.put(next);
+    await enqueue(side, 'boxes', 'upsert', next.id, next);
     set({ boxes: get().boxes.map((b) => (b.id === id ? next : b)) });
   },
 
   removeBox: async (id) => {
-    await db.boxes.delete(id);
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'boxes');
+    await table.delete(id);
+    await enqueue(side, 'boxes', 'delete', id, null);
     set({ boxes: get().boxes.filter((b) => b.id !== id) });
   },
 
   toggleDamagedSlot: async (id, slot) => {
+    const side = useSideStore.getState().side;
+    const table = writeTable(side, 'boxes');
     const current = get().boxes.find((b) => b.id === id);
     if (!current) return;
     const damagedSlots = current.damagedSlots.includes(slot)
       ? current.damagedSlots.filter((s) => s !== slot)
       : [...current.damagedSlots, slot].sort((a, b) => a - b);
     const next: CoreBox = { ...current, damagedSlots };
-    await db.boxes.put(next);
+    await table.put(next);
+    await enqueue(side, 'boxes', 'upsert', next.id, next);
     set({ boxes: get().boxes.map((b) => (b.id === id ? next : b)) });
   },
 }));

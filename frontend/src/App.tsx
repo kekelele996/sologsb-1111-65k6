@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Layout, Menu, Spin, Typography, App as AntApp, Button, Space } from 'antd';
+import { Layout, Menu, Spin, Typography, App as AntApp, Button, Segmented, Space, Tag } from 'antd';
 import {
   CompassOutlined,
   DatabaseOutlined,
@@ -7,14 +7,19 @@ import {
   ExperimentOutlined,
   ProfileOutlined,
   BarsOutlined,
+  SafetyCertificateOutlined,
+  CloudSyncOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { seedIfEmpty } from './utils/seed';
+import { enableSides } from './utils/ownership';
 import { downloadText, exportBackupJson } from './utils/export';
 import { useHoleStore } from './stores/holeStore';
 import { useRunStore } from './stores/runStore';
 import { useBoxStore } from './stores/boxStore';
 import { useLithoStore } from './stores/lithoStore';
+import { useQcStore } from './stores/qcStore';
+import { useSideStore, type Side } from './stores/sideStore';
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Title, Text } = Typography;
@@ -25,16 +30,21 @@ const MENU_ITEMS = [
   { key: '/runs', icon: <BarsOutlined />, label: <Link to="/runs">回次记录</Link> },
   { key: '/boxes', icon: <ProfileOutlined />, label: <Link to="/boxes">岩芯箱</Link> },
   { key: '/lithology', icon: <ExperimentOutlined />, label: <Link to="/lithology">岩性编录</Link> },
+  { key: '/qc', icon: <SafetyCertificateOutlined />, label: <Link to="/qc">质检结论</Link> },
+  { key: '/reconcile', icon: <CloudSyncOutlined />, label: <Link to="/reconcile">对账同步</Link> },
 ];
 
-/** 应用外壳：左侧导航 + 顶部导出备份，负责一次性的本地数据装载 */
+/** 应用外壳：左侧导航 + 顶栏端别切换/导出备份，负责一次性的本地数据装载与按归属迁移 */
 export default function App() {
   const { message } = AntApp.useApp();
   const [ready, setReady] = useState(false);
+  const side = useSideStore((s) => s.side);
+  const setSide = useSideStore((s) => s.setSide);
   const hydrateHoles = useHoleStore((s) => s.hydrate);
   const hydrateRuns = useRunStore((s) => s.hydrate);
   const hydrateBoxes = useBoxStore((s) => s.hydrate);
   const hydrateLithos = useLithoStore((s) => s.hydrate);
+  const hydrateQc = useQcStore((s) => s.hydrate);
   const location = useLocation();
 
   useEffect(() => {
@@ -42,7 +52,9 @@ export default function App() {
     (async () => {
       try {
         await seedIfEmpty();
-        await Promise.all([hydrateHoles(), hydrateRuns(), hydrateBoxes(), hydrateLithos()]);
+        // 首次打开按归属把已有数据复制到对端只读副本，再启用两端
+        await enableSides();
+        await Promise.all([hydrateHoles(), hydrateRuns(), hydrateBoxes(), hydrateLithos(), hydrateQc()]);
       } catch (error) {
         message.error(`本地数据装载失败：${(error as Error).message}`);
       } finally {
@@ -52,7 +64,8 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [hydrateHoles, hydrateRuns, hydrateBoxes, hydrateLithos, message]);
+    // side 变化时重新按端别装载主表/副本
+  }, [side, hydrateHoles, hydrateRuns, hydrateBoxes, hydrateLithos, hydrateQc, message]);
 
   const selectedKey =
     MENU_ITEMS.map((item) => item.key)
@@ -72,14 +85,25 @@ export default function App() {
           <Title level={5} style={{ color: '#fff', margin: 0 }}>
             钻孔岩芯编目台
           </Title>
-          <Text style={{ color: '#9fb4c2', fontSize: 12 }}>gbdrillcore · 纯前端本地存储</Text>
+          <Text style={{ color: '#9fb4c2', fontSize: 12 }}>gbdrillcore · 两端各持一份</Text>
         </div>
         <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} items={MENU_ITEMS} style={{ background: 'transparent' }} />
       </Sider>
       <Layout>
         <Header style={{ background: '#fff', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text strong>矿区钻孔岩芯编目台</Text>
+          <Space align="center">
+            <Text strong>矿区钻孔岩芯编目台</Text>
+            <Tag color={side === 'field' ? 'orange' : 'purple'}>{side === 'field' ? '现场端（钻机班组）' : '编录室端（地质编录员）'}</Tag>
+          </Space>
           <Space>
+            <Segmented
+              value={side}
+              onChange={(v) => setSide(v as Side)}
+              options={[
+                { label: '现场端', value: 'field' },
+                { label: '编录室端', value: 'catalog' },
+              ]}
+            />
             <Button icon={<DownloadOutlined />} onClick={handleExport}>
               导出备份
             </Button>
@@ -95,7 +119,7 @@ export default function App() {
           )}
         </Content>
         <Footer style={{ textAlign: 'center', color: '#8a99a5', padding: '12px 0' }}>
-          数据保存在浏览器 IndexedDB（gbdrillcore-db），不依赖后端服务
+          现场端与编录室端各持一份（IndexedDB：gbdrillcore-db），改动只落自己这边，回到驻地再同步
         </Footer>
       </Layout>
     </Layout>

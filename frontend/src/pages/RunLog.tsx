@@ -6,7 +6,9 @@ import StatBadge from '../components/common/StatBadge';
 import RecoveryBadge from '../components/common/RecoveryBadge';
 import DepthRangeInput from '../components/common/DepthRangeInput';
 import EmptyPanel from '../components/common/EmptyPanel';
+import ReplicaBanner from '../components/common/ReplicaBanner';
 import { useDepthCalc } from '../hooks/useDepthCalc';
+import { useCanEdit } from '../hooks/useSide';
 import { useHoleStore } from '../stores/holeStore';
 import { useRunStore } from '../stores/runStore';
 import { SHIFTS } from '../types/drill-hole';
@@ -39,6 +41,7 @@ export default function RunLog() {
   const updateRun = useRunStore((s) => s.updateRun);
   const removeRun = useRunStore((s) => s.removeRun);
   const { runsOf, summarize } = useDepthCalc();
+  const canEdit = useCanEdit('runs');
 
   const [form] = Form.useForm<RunFormValues>();
   const [open, setOpen] = useState(false);
@@ -136,23 +139,27 @@ export default function RunLog() {
     { title: '钻进日期', dataIndex: 'drilledAt', width: 120, render: (v: string) => dayjs(v).format('YYYY-MM-DD') },
     { title: '记录人', dataIndex: 'recorder', width: 90 },
     { title: '备注', dataIndex: 'remark', ellipsis: true, render: (v?: string) => v ?? '-' },
-    {
-      title: '操作',
-      width: 140,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space size={2}>
-          <Button size="small" type="link" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title={`确认删除回次 ${record.runNo}？`} onConfirm={() => removeRun(record.id).then(() => message.success('已删除'))}>
-            <Button size="small" type="link" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
+    ...(canEdit
+      ? [
+          {
+            title: '操作',
+            width: 140,
+            fixed: 'right' as const,
+            render: (_: unknown, record: DrillRun) => (
+              <Space size={2}>
+                <Button size="small" type="link" onClick={() => openEdit(record)}>
+                  编辑
+                </Button>
+                <Popconfirm title={`确认删除回次 ${record.runNo}？`} onConfirm={() => removeRun(record.id).then(() => message.success('已删除'))}>
+                  <Button size="small" type="link" danger>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const previewFootage = footageOf(range.from, range.to);
@@ -165,10 +172,12 @@ export default function RunLog() {
       </Title>
       <Paragraph type="secondary">录入起止深度与岩芯长度，系统自动计算进尺与采取率；采取率低于 75% 立即标红并进入异常清单。</Paragraph>
 
+      <ReplicaBanner entity="runs" />
+
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 200 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           录入回次
         </Button>
         <Text type="secondary">
