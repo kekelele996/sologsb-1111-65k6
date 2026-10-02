@@ -1,14 +1,21 @@
-import { db } from './db';
 import type { DrillHole } from '../types/drill-hole';
 import type { DrillRun } from '../types/drill-run';
 import type { CoreBox } from '../types/core-box';
 import type { LithoLog } from '../types/litho-log';
+import type { QualityConclusion } from '../types/quality-control';
+import type { SyncFields } from '../types/sync';
 import { footageOf, recoveryOf } from './recovery';
+
+export type SeedHole = Omit<DrillHole, keyof SyncFields>;
+export type SeedRun = Omit<DrillRun, keyof SyncFields>;
+export type SeedBox = Omit<CoreBox, keyof SyncFields>;
+export type SeedLitho = Omit<LithoLog, keyof SyncFields>;
+export type SeedQc = Omit<QualityConclusion, keyof SyncFields>;
 
 const DAY = 86_400_000;
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
 
-export const SEED_HOLES: DrillHole[] = [
+export const SEED_HOLES: SeedHole[] = [
   {
     id: 'hole-001',
     holeNo: 'ZK-2401',
@@ -95,7 +102,7 @@ export const SEED_HOLES: DrillHole[] = [
 ];
 
 /** 按孔生成回次：5m 一回次，采取率在 62%~98% 之间波动（含低采取率异常回次） */
-function buildRuns(): DrillRun[] {
+function buildRuns(): SeedRun[] {
   const plan: Array<{ holeId: string; runNoPrefix: string; reached: number; base: number; anomalyRuns: number[] }> = [
     { holeId: 'hole-001', runNoPrefix: '2401', reached: 155, base: 91, anomalyRuns: [17] },
     { holeId: 'hole-002', runNoPrefix: '2402', reached: 250, base: 93, anomalyRuns: [12, 33] },
@@ -104,7 +111,7 @@ function buildRuns(): DrillRun[] {
     { holeId: 'hole-005', runNoPrefix: '2405', reached: 45, base: 90, anomalyRuns: [6] },
   ];
 
-  const runs: DrillRun[] = [];
+  const runs: SeedRun[] = [];
   plan.forEach((item) => {
     const total = Math.floor(item.reached / 5);
     for (let i = 0; i < total; i += 1) {
@@ -134,9 +141,9 @@ function buildRuns(): DrillRun[] {
   return runs;
 }
 
-export const SEED_RUNS: DrillRun[] = buildRuns();
+export const SEED_RUNS: SeedRun[] = buildRuns();
 
-export const SEED_BOXES: CoreBox[] = [
+export const SEED_BOXES: SeedBox[] = [
   { id: 'box-001', boxNo: 'X-2402-01', holeId: 'hole-002', fromDepth: 0, toDepth: 25, slots: 10, slotLength: 2.5, boxedAt: daysAgo(40), shelfPos: 'A 区 1 架', damagedSlots: [], operator: '高振华' },
   { id: 'box-002', boxNo: 'X-2402-02', holeId: 'hole-002', fromDepth: 25, toDepth: 50, slots: 10, slotLength: 2.5, boxedAt: daysAgo(39), shelfPos: 'A 区 1 架', damagedSlots: [4], operator: '高振华', remark: '第 4 格岩芯破碎' },
   { id: 'box-003', boxNo: 'X-2402-03', holeId: 'hole-002', fromDepth: 50, toDepth: 75, slots: 10, slotLength: 2.5, boxedAt: daysAgo(38), shelfPos: 'A 区 2 架', damagedSlots: [], operator: '周明' },
@@ -146,7 +153,7 @@ export const SEED_BOXES: CoreBox[] = [
   { id: 'box-007', boxNo: 'X-2401-01', holeId: 'hole-001', fromDepth: 0, toDepth: 26, slots: 11, slotLength: 2.5, boxedAt: daysAgo(22), shelfPos: 'C 区 1 架', damagedSlots: [], operator: '高振华' },
 ];
 
-export const SEED_LITHOS: LithoLog[] = [
+export const SEED_LITHOS: SeedLitho[] = [
   { id: 'litho-001', holeId: 'hole-002', fromDepth: 0, toDepth: 8, lithology: '第四系覆盖层', color: '黄褐色', alteration: '无', mineralization: '无', rqd: 0, sampleNo: '', logger: '陈立', remark: '残坡积层' },
   { id: 'litho-002', holeId: 'hole-002', fromDepth: 8, toDepth: 62, lithology: '花岗闪长岩', color: '灰白色', alteration: '绿泥石化', mineralization: '无', rqd: 82, sampleNo: 'YP-2402-01', logger: '陈立' },
   { id: 'litho-003', holeId: 'hole-002', fromDepth: 62, toDepth: 96, lithology: '矽卡岩', color: '暗绿色', alteration: '矽卡岩化', mineralization: '磁铁矿', rqd: 68, sampleNo: 'YP-2402-02', logger: '陈立', remark: '见稀疏浸染状磁铁矿' },
@@ -167,24 +174,8 @@ export const SEED_LITHOS: LithoLog[] = [
   { id: 'litho-018', holeId: 'hole-005', fromDepth: 11, toDepth: 45, lithology: '花岗闪长岩', color: '灰白色', alteration: '硅化', mineralization: '无', rqd: 87, sampleNo: 'YP-2405-01', logger: '吴倩' },
 ];
 
-/** 首次打开（表内无数据）时写入示例数据；已有数据则不动 */
-export async function seedIfEmpty(): Promise<void> {
-  const flag = await db.meta.get('seeded');
-  if (flag) {
-    return;
-  }
-  const [holeCount, runCount, boxCount, lithoCount] = await Promise.all([
-    db.holes.count(),
-    db.runs.count(),
-    db.boxes.count(),
-    db.lithos.count(),
-  ]);
-
-  await db.transaction('rw', db.holes, db.runs, db.boxes, db.lithos, db.meta, async () => {
-    if (holeCount === 0) await db.holes.bulkPut(SEED_HOLES);
-    if (runCount === 0) await db.runs.bulkPut(SEED_RUNS);
-    if (boxCount === 0) await db.boxes.bulkPut(SEED_BOXES);
-    if (lithoCount === 0) await db.lithos.bulkPut(SEED_LITHOS);
-    await db.meta.put({ key: 'seeded', value: new Date().toISOString() });
-  });
-}
+export const SEED_QCS: SeedQc[] = [
+  { id: 'qc-001', holeId: 'hole-002', fromDepth: 62, toDepth: 96, conclusion: '通过', sampleNo: 'YP-2402-02', inspector: '陈立', checkedAt: daysAgo(13), remark: '样品编录与装箱一致' },
+  { id: 'qc-002', holeId: 'hole-003', fromDepth: 74, toDepth: 118, conclusion: '异常待裁定', sampleNo: 'YP-2403-02', inspector: '吴倩', checkedAt: daysAgo(6), remark: '低采取率与破碎带需现场复核' },
+  { id: 'qc-003', holeId: 'hole-001', fromDepth: 86, toDepth: 155, conclusion: '返工核实', sampleNo: 'YP-2401-02', inspector: '陈立', checkedAt: daysAgo(2), remark: '补核异常回次岩芯箱' },
+];

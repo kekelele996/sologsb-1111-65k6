@@ -11,6 +11,7 @@ import { useBoxStore } from '../stores/boxStore';
 import { RIG_NOS, SHIFTS, type DrillHole, type SurveyPoint } from '../types/drill-hole';
 import { mergeRanges } from '../utils/recovery';
 import { uid } from '../utils/id';
+import { activeSide } from '../utils/db';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -54,7 +55,6 @@ export default function HoleList() {
   const updateHole = useHoleStore((s) => s.updateHole);
   const removeHole = useHoleStore((s) => s.removeHole);
   const runs = useRunStore((s) => s.runs);
-  const removeRunsByHole = useRunStore((s) => s.removeByHole);
   const boxes = useBoxStore((s) => s.boxes);
 
   const filter = useHoleFilter();
@@ -160,7 +160,7 @@ export default function HoleList() {
       title: '操作',
       width: 150,
       fixed: 'right',
-      render: (_, record) => (
+      render: (_, record) => activeSide === 'field' ? (
         <Space size={2}>
           <Button size="small" type="link" onClick={() => openEdit(record)}>
             编辑
@@ -168,9 +168,8 @@ export default function HoleList() {
           <Popconfirm
             title={`确认删除 ${record.holeNo}？（同时清除其回次）`}
             onConfirm={async () => {
-              await removeRunsByHole(record.id);
               await removeHole(record.id);
-              message.success('已删除钻孔及其回次');
+              message.success('已删除钻孔及其现场回次、岩芯箱挂单');
             }}
           >
             <Button size="small" type="link" danger>
@@ -178,6 +177,8 @@ export default function HoleList() {
             </Button>
           </Popconfirm>
         </Space>
+      ) : (
+        <Text type="secondary">现场端维护</Text>
       ),
     },
   ];
@@ -190,9 +191,13 @@ export default function HoleList() {
       <Paragraph type="secondary">登记钻孔坐标、孔口标高、设计孔深与测斜数据，并回显回次深度覆盖与岩芯箱数量。</Paragraph>
 
       <Space style={{ marginBottom: 12 }}>
-        <Button type="primary" onClick={openCreate}>
-          新建钻孔
-        </Button>
+        {activeSide === 'field' ? (
+          <Button type="primary" onClick={openCreate}>
+            新建钻孔
+          </Button>
+        ) : (
+          <Alert type="info" showIcon message="钻孔主档由现场端开孔时维护，编录室端仅查看同步副本。" />
+        )}
       </Space>
 
       <FilterBar

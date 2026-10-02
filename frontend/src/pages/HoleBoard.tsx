@@ -11,6 +11,7 @@ import { useRunStore, anomalyList } from '../stores/runStore';
 import { RIG_NOS, SHIFTS, type HoleProgress } from '../types/drill-hole';
 import type { RunAnomaly } from '../types/drill-run';
 import { isAnomaly } from '../utils/recovery';
+import { activeSide } from '../utils/db';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -67,9 +68,9 @@ export default function HoleBoard() {
       title: '操作',
       width: 110,
       render: (_, row) => (
-        <Link to="/runs">
+        <Link to={activeSide === 'field' ? '/runs' : '/sync'}>
           <Button size="small" type="link">
-            录回次
+            {activeSide === 'field' ? '录回次' : '同步查看'}
           </Button>
         </Link>
       ),

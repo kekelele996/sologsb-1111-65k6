@@ -16,6 +16,7 @@ import {
   type Lithology,
   type Mineralization,
 } from '../types/litho-log';
+import { activeSide } from '../utils/db';
 import { gapsWithin, validateRange } from '../utils/recovery';
 
 const { Title, Paragraph, Text } = Typography;
@@ -62,6 +63,7 @@ export default function LithoEditor() {
   );
   const holeRuns = useMemo(() => runs.filter((run) => run.holeId === activeHoleId), [runs, activeHoleId]);
   const activeHole = holes.find((h) => h.id === activeHoleId);
+  const canEdit = activeSide === 'office';
 
   const liveFrom = range.from;
   const liveTo = range.to;
@@ -173,7 +175,7 @@ export default function LithoEditor() {
       title: '操作',
       width: 140,
       fixed: 'right',
-      render: (_, record) => (
+      render: (_, record) => canEdit ? (
         <Space size={2}>
           <Button size="small" type="link" onClick={() => openEdit(record)}>
             编辑
@@ -184,6 +186,8 @@ export default function LithoEditor() {
             </Button>
           </Popconfirm>
         </Space>
+      ) : (
+        <Text type="secondary">编录室维护</Text>
       ),
     },
   ];
@@ -196,11 +200,12 @@ export default function LithoEditor() {
       <Paragraph type="secondary">
         按深度区间编录岩性、蚀变、矿化与 RQD，区间不允许与已编录区间重叠（重叠即报冲突并高亮）；右侧柱状图叠加样品位与采取率异常段。
       </Paragraph>
+      {!canEdit ? <Alert style={{ marginBottom: 12 }} type="info" showIcon message="当前为现场端：岩性区间、样品号由编录室端维护，此处仅显示同步副本。" /> : null}
 
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 220 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           新增岩性区间
         </Button>
         <Tag color="blue">已编录 {holeLogs.length} 段</Tag>

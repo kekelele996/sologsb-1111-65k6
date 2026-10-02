@@ -12,6 +12,7 @@ import { useRunStore } from '../stores/runStore';
 import { SHIFTS } from '../types/drill-hole';
 import type { DrillRun, RunShift } from '../types/drill-run';
 import { footageOf, recoveryOf, validateRange } from '../utils/recovery';
+import { activeSide } from '../utils/db';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -49,6 +50,7 @@ export default function RunLog() {
 
   const holeOptions = holes.map((hole) => ({ label: `${hole.holeNo} · ${hole.rigNo}`, value: hole.id }));
   const activeHoleId = currentHoleId || holes[0]?.id || '';
+  const canEdit = activeSide === 'field';
   const summary = useMemo(() => summarize(activeHoleId), [summarize, activeHoleId]);
   const tableRuns = useMemo(() => [...summary.runs].sort((a, b) => b.fromDepth - a.fromDepth), [summary.runs]);
 
@@ -140,7 +142,7 @@ export default function RunLog() {
       title: '操作',
       width: 140,
       fixed: 'right',
-      render: (_, record) => (
+      render: (_, record) => canEdit ? (
         <Space size={2}>
           <Button size="small" type="link" onClick={() => openEdit(record)}>
             编辑
@@ -151,6 +153,8 @@ export default function RunLog() {
             </Button>
           </Popconfirm>
         </Space>
+      ) : (
+        <Text type="secondary">现场端维护</Text>
       ),
     },
   ];
@@ -164,11 +168,12 @@ export default function RunLog() {
         回次记录
       </Title>
       <Paragraph type="secondary">录入起止深度与岩芯长度，系统自动计算进尺与采取率；采取率低于 75% 立即标红并进入异常清单。</Paragraph>
+      {!canEdit ? <Alert style={{ marginBottom: 12 }} type="info" showIcon message="当前为编录室端：回次进尺、采取率由现场端维护，此处仅显示同步副本。" /> : null}
 
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 200 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           录入回次
         </Button>
         <Text type="secondary">

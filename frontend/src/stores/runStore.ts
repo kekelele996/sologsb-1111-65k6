@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { db } from '../utils/db';
+import { activeSide, db } from '../utils/db';
 import { uid } from '../utils/id';
+import { buildOutboxItem, stampNew, stampUpdate } from '../utils/syncData';
 import type { DrillRun, RunAnomaly, RunShift } from '../types/drill-run';
 import { footageOf, gradeOf, isAnomaly, recoveryOf, RECOVERY_GRADE_TEXT } from '../utils/recovery';
 
@@ -38,8 +39,9 @@ export const useRunStore = create<RunState>()((set, get) => ({
   },
 
   addRun: async (input) => {
+    if (activeSide !== 'field') throw new Error('回次进尺和采取率只归现场端维护');
     const footage = footageOf(input.fromDepth, input.toDepth);
-    const run: DrillRun = {
+    const base = {
       id: uid('run'),
       runNo: input.runNo.trim(),
       holeId: input.holeId,
@@ -54,7 +56,19 @@ export const useRunStore = create<RunState>()((set, get) => ({
       recorder: input.recorder.trim(),
       remark: input.remark?.trim() || undefined,
     };
-    await db.runs.put(run);
+    const run = stampNew(base, 'runs');
+    const outbox = buildOutboxItem({
+      side: activeSide,
+      entityType: 'runs',
+      entityId: run.id,
+      revision: run.revision,
+      operation: 'upsert',
+      payload: run,
+    });
+    await db.transaction('rw', db.runs, db.outbox, async () => {
+      await db.runs.put(run);
+      await db.outbox.put(outbox);
+    });
     set({ runs: [run, ...get().runs] });
     return run;
   },
@@ -62,25 +76,68 @@ export const useRunStore = create<RunState>()((set, get) => ({
   updateRun: async (id, patch) => {
     const current = get().runs.find((r) => r.id === id);
     if (!current) return;
+    if (current.ownerSide !== activeSide) throw new Error('不能修改对端回次记录');
     const merged = { ...current, ...patch };
     const footage = footageOf(merged.fromDepth, merged.toDepth);
-    const next: DrillRun = {
-      ...merged,
+    const next = stampUpdate(merged, {
       footage,
       recovery: recoveryOf(merged.coreLength, footage),
-    };
-    await db.runs.put(next);
+    });
+    const outbox = buildOutboxItem({
+      side: activeSide,
+      entityType: 'runs',
+      entityId: next.id,
+      revision: next.revision,
+      operation: 'upsert',
+      payload: next,
+    });
+    await db.transaction('rw', db.runs, db.outbox, async () => {
+      await db.runs.put(next);
+      await db.outbox.put(outbox);
+    });
     set({ runs: get().runs.map((r) => (r.id === id ? next : r)) });
   },
 
   removeRun: async (id) => {
-    await db.runs.delete(id);
+    const current = get().runs.find((r) => r.id === id);
+    if (current?.ownerSide !== activeSide) return;
+    await db.transaction('rw', db.runs, db.outbox, async () => {
+      await db.runs.delete(id);
+      if (current?.ownerSide === activeSide) {
+        await db.outbox.put(
+          buildOutboxItem({
+            side: activeSide,
+            entityType: 'runs',
+            entityId: id,
+            revision: current.revision + 1,
+            operation: 'delete',
+          }),
+        );
+      }
+    });
     set({ runs: get().runs.filter((r) => r.id !== id) });
   },
 
   removeByHole: async (holeId) => {
-    const ids = get().runs.filter((r) => r.holeId === holeId).map((r) => r.id);
-    await db.runs.bulkDelete(ids);
+    const removable = get().runs.filter((r) => r.holeId === holeId);
+    await db.transaction('rw', db.runs, db.outbox, async () => {
+      const ids: string[] = [];
+      for (const run of removable) {
+        ids.push(run.id);
+        if (run.ownerSide === activeSide) {
+          await db.outbox.put(
+            buildOutboxItem({
+              side: activeSide,
+              entityType: 'runs',
+              entityId: run.id,
+              revision: run.revision + 1,
+              operation: 'delete',
+            }),
+          );
+        }
+      }
+      await db.runs.bulkDelete(ids);
+    });
     set({ runs: get().runs.filter((r) => r.holeId !== holeId) });
   },
 }));

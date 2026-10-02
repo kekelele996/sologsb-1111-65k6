@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { db } from '../utils/db';
+import { activeSide, db } from '../utils/db';
 import { uid } from '../utils/id';
+import { buildOutboxItem, stampNew, stampUpdate } from '../utils/syncData';
 import type { CoreBox } from '../types/core-box';
 
 export interface BoxInput {
@@ -39,7 +40,8 @@ export const useBoxStore = create<BoxState>()((set, get) => ({
   },
 
   addBox: async (input) => {
-    const box: CoreBox = {
+    if (activeSide !== 'field') throw new Error('岩芯箱装箱只归现场端维护');
+    const base = {
       id: uid('box'),
       boxNo: input.boxNo.trim(),
       holeId: input.holeId,
@@ -53,32 +55,80 @@ export const useBoxStore = create<BoxState>()((set, get) => ({
       operator: input.operator.trim(),
       remark: input.remark?.trim() || undefined,
     };
-    await db.boxes.put(box);
+    const box = stampNew(base, 'boxes');
+    const outbox = buildOutboxItem({
+      side: activeSide,
+      entityType: 'boxes',
+      entityId: box.id,
+      revision: box.revision,
+      operation: 'upsert',
+      payload: box,
+    });
+    await db.transaction('rw', db.boxes, db.outbox, async () => {
+      await db.boxes.put(box);
+      await db.outbox.put(outbox);
+    });
     set({ boxes: [...get().boxes, box] });
     return box;
   },
 
   updateBox: async (id, patch) => {
     const current = get().boxes.find((b) => b.id === id);
-    if (!current) return;
-    const next: CoreBox = { ...current, ...patch };
-    await db.boxes.put(next);
+    if (!current || current.ownerSide !== activeSide) return;
+    const next = stampUpdate({ ...current, ...patch }, {});
+    const outbox = buildOutboxItem({
+      side: activeSide,
+      entityType: 'boxes',
+      entityId: next.id,
+      revision: next.revision,
+      operation: 'upsert',
+      payload: next,
+    });
+    await db.transaction('rw', db.boxes, db.outbox, async () => {
+      await db.boxes.put(next);
+      await db.outbox.put(outbox);
+    });
     set({ boxes: get().boxes.map((b) => (b.id === id ? next : b)) });
   },
 
   removeBox: async (id) => {
-    await db.boxes.delete(id);
+    const current = get().boxes.find((b) => b.id === id);
+    await db.transaction('rw', db.boxes, db.outbox, async () => {
+      await db.boxes.delete(id);
+      if (current?.ownerSide === activeSide) {
+        await db.outbox.put(
+          buildOutboxItem({
+            side: activeSide,
+            entityType: 'boxes',
+            entityId: id,
+            revision: current.revision + 1,
+            operation: 'delete',
+          }),
+        );
+      }
+    });
     set({ boxes: get().boxes.filter((b) => b.id !== id) });
   },
 
   toggleDamagedSlot: async (id, slot) => {
     const current = get().boxes.find((b) => b.id === id);
-    if (!current) return;
+    if (!current || current.ownerSide !== activeSide) return;
     const damagedSlots = current.damagedSlots.includes(slot)
       ? current.damagedSlots.filter((s) => s !== slot)
       : [...current.damagedSlots, slot].sort((a, b) => a - b);
-    const next: CoreBox = { ...current, damagedSlots };
-    await db.boxes.put(next);
+    const next = stampUpdate(current, { damagedSlots });
+    const outbox = buildOutboxItem({
+      side: activeSide,
+      entityType: 'boxes',
+      entityId: next.id,
+      revision: next.revision,
+      operation: 'upsert',
+      payload: next,
+    });
+    await db.transaction('rw', db.boxes, db.outbox, async () => {
+      await db.boxes.put(next);
+      await db.outbox.put(outbox);
+    });
     set({ boxes: get().boxes.map((b) => (b.id === id ? next : b)) });
   },
 }));

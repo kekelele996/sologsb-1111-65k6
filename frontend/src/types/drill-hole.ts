@@ -1,3 +1,5 @@
+import type { SyncFields } from './sync';
+
 /** 钻孔测斜点 */
 export interface SurveyPoint {
   id: string;
@@ -10,7 +12,7 @@ export interface SurveyPoint {
 }
 
 /** 钻孔台帐 */
-export interface DrillHole {
+export interface DrillHole extends SyncFields {
   id: string;
   /** 孔号 */
   holeNo: string;

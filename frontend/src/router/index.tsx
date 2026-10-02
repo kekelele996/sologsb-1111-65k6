@@ -6,6 +6,8 @@ import HoleList from '../pages/HoleList';
 import RunLog from '../pages/RunLog';
 import CoreBoxList from '../pages/CoreBoxList';
 import LithoEditor from '../pages/LithoEditor';
+import QualityReview from '../pages/QualityReview';
+import SyncCenter from '../pages/SyncCenter';
 
 function NotFound() {
   return (
@@ -33,6 +35,8 @@ export const routes: RouteObject[] = [
       { path: 'runs', element: <RunLog /> },
       { path: 'boxes', element: <CoreBoxList /> },
       { path: 'lithology', element: <LithoEditor /> },
+      { path: 'quality', element: <QualityReview /> },
+      { path: 'sync', element: <SyncCenter /> },
       { path: '*', element: <NotFound /> },
     ],
   },

@@ -80,8 +80,12 @@ export function mergeRanges(ranges: Array<{ from: number; to: number }>): Array<
 }
 
 /** [fromDepth, toDepth] 内未被覆盖的断档区间 */
-export function gapsWithin(fromDepth: number, toDepth: number, runs: DrillRun[]): Array<{ from: number; to: number }> {
-  const merged = mergeRanges(runs.map((run) => ({ from: run.fromDepth, to: run.toDepth })));
+export function gapsWithin(
+  fromDepth: number,
+  toDepth: number,
+  coveringRanges: Array<{ fromDepth: number; toDepth: number }>,
+): Array<{ from: number; to: number }> {
+  const merged = mergeRanges(coveringRanges.map((range) => ({ from: range.fromDepth, to: range.toDepth })));
   const gaps: Array<{ from: number; to: number }> = [];
   let cursor = fromDepth;
   merged.forEach((range) => {
@@ -118,13 +122,16 @@ export function buildHoleProgress(hole: DrillHole, runs: DrillRun[]): HoleProgre
   };
 }
 
+type BoxDepthRecord = Pick<CoreBox, 'id' | 'holeId' | 'fromDepth' | 'toDepth'>;
+type BoxCapacityRecord = Pick<CoreBox, 'fromDepth' | 'toDepth' | 'slots' | 'slotLength'>;
+
 /** 岩芯箱深度连续性校验：区间是否被回次完整覆盖 */
-export function checkBoxContinuity(box: CoreBox, runs: DrillRun[]): BoxContinuity {
+export function checkBoxContinuity(box: BoxDepthRecord, runs: DrillRun[]): BoxContinuity {
   const holeRuns = runs.filter((run) => run.holeId === box.holeId);
   const gaps = gapsWithin(box.fromDepth, box.toDepth, holeRuns);
   const covered = gaps.length === 0;
   return {
-    box,
+    box: box as CoreBox,
     covered,
     gaps,
     message: covered
@@ -134,7 +141,7 @@ export function checkBoxContinuity(box: CoreBox, runs: DrillRun[]): BoxContinuit
 }
 
 /** 格位容量校验：格数 × 每格长度 应不小于区间长度 */
-export function boxCapacityOk(box: CoreBox): boolean {
+export function boxCapacityOk(box: BoxCapacityRecord): boolean {
   return box.slots * box.slotLength + 0.0001 >= box.toDepth - box.fromDepth;
 }
 

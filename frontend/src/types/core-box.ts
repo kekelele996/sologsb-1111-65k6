@@ -1,5 +1,7 @@
+import type { SyncFields } from './sync';
+
 /** 岩芯箱 */
-export interface CoreBox {
+export interface CoreBox extends SyncFields {
   id: string;
   /** 箱号 */
   boxNo: string;

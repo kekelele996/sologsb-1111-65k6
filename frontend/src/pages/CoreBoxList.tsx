@@ -10,6 +10,7 @@ import { useRunStore } from '../stores/runStore';
 import { useBoxStore } from '../stores/boxStore';
 import { SHELF_POSITIONS, type CoreBox, type BoxContinuity } from '../types/core-box';
 import { boxCapacityOk, checkBoxContinuity, validateRange } from '../utils/recovery';
+import { activeSide } from '../utils/db';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -61,6 +62,7 @@ export default function CoreBoxList() {
 
   const holeOptions = holes.map((hole) => ({ label: `${hole.holeNo} · ${hole.rigNo}`, value: hole.id }));
   const activeHoleId = currentHoleId || holes[0]?.id || '';
+  const canEdit = activeSide === 'field';
   const holeBoxes = useMemo(() => boxes.filter((b) => b.holeId === activeHoleId), [boxes, activeHoleId]);
   const selectedBox = useMemo(
     () => holeBoxes.find((b) => b.id === selectedBoxId) ?? holeBoxes[0],
@@ -130,7 +132,7 @@ export default function CoreBoxList() {
       damagedSlots: parseSlots(values.damagedText).filter((slot) => slot <= (Number(values.slots) || 0)),
       remark: values.remark,
     };
-    const draft: CoreBox = { id: editing?.id ?? 'draft', ...payload };
+    const draft = { id: editing?.id ?? 'draft', ...payload } as unknown as CoreBox;
     if (!boxCapacityOk(draft)) {
       message.error('格数 × 每格长度小于区间长度，格位容量不足');
       return;
@@ -184,14 +186,18 @@ export default function CoreBoxList() {
           <Button size="small" type="link" onClick={() => setSelectedBoxId(record.id)}>
             查看格位
           </Button>
-          <Button size="small" type="link" onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          <Popconfirm title={`确认删除岩芯箱 ${record.boxNo}？`} onConfirm={() => removeBox(record.id).then(() => message.success('已删除'))}>
-            <Button size="small" type="link" danger>
-              删除
-            </Button>
-          </Popconfirm>
+          {canEdit ? (
+            <>
+              <Button size="small" type="link" onClick={() => openEdit(record)}>
+                编辑
+              </Button>
+              <Popconfirm title={`确认删除岩芯箱 ${record.boxNo}？`} onConfirm={() => removeBox(record.id).then(() => message.success('已删除'))}>
+                <Button size="small" type="link" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            </>
+          ) : null}
         </Space>
       ),
     },
@@ -205,11 +211,12 @@ export default function CoreBoxList() {
         岩芯箱编目与格位分配
       </Title>
       <Paragraph type="secondary">按深度区间分配格位，装箱时校验区间与回次是否连续；断档在格位网格中以虚线标出，破损格可点击切换标记。</Paragraph>
+      {!canEdit ? <Alert style={{ marginBottom: 12 }} type="info" showIcon message="当前为编录室端：岩芯箱装箱由现场端维护，此处仅显示同步副本。" /> : null}
 
       <Space style={{ marginBottom: 12 }} wrap>
         <span style={{ color: '#6b7a86' }}>当前钻孔</span>
         <Select style={{ width: 200 }} value={activeHoleId} onChange={setCurrentHole} options={holeOptions} placeholder="选择钻孔" />
-        <Button type="primary" onClick={openCreate} disabled={!activeHoleId}>
+        <Button type="primary" onClick={openCreate} disabled={!activeHoleId || !canEdit}>
           新建岩芯箱
         </Button>
       </Space>
@@ -233,7 +240,7 @@ export default function CoreBoxList() {
             >
               {selectedBox ? (
                 <>
-                  <BoxGrid box={selectedBox} runs={runs} onToggleDamaged={(slot) => toggleDamagedSlot(selectedBox.id, slot)} />
+                  <BoxGrid box={selectedBox} runs={runs} onToggleDamaged={canEdit ? (slot) => toggleDamagedSlot(selectedBox.id, slot) : undefined} />
                   <Alert
                     style={{ marginTop: 10 }}
                     type={continuityOf(selectedBox).covered ? 'success' : 'warning'}
